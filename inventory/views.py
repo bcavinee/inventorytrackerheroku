@@ -227,6 +227,7 @@ def tech_information_hub(request):
 		#Stating reagent does not exist
 		if department.objects.filter(Q(reagent_name__iexact=reagent_user_choice) & Q(current_lot=True)).exists() == True:
 
+			#This lets the user know that they took more reagent out than currently exist
 			current_amount= department.objects.values_list('reagent_quantity', flat=True).get(Q(reagent_name__iexact=reagent_user_choice) & Q(current_lot=True))
 			if int(amount_taken) > current_amount:
 
@@ -321,57 +322,62 @@ def tech_information_hub(request):
 			pass
 
 		elif reagent_lot_table is not None:
-			
-			#Getting user reagent choice by querying hematology_inventory model
-			user_reagent_choice_table= department.objects.get(reagent_lot=reagent_lot_table)
 
-			#Taking amount taken by user and decrementing the reagent quantity in database 
-			user_reagent_choice_table.reagent_quantity= F('reagent_quantity') - 1
+			#When the reagent quant was = to zero and you hit the subtract button it would change the current lot to false
+			#Checking to see if the current amount == 0 fixes this			
+			current_amount= department.objects.values_list('reagent_quantity', flat=True).get(reagent_lot=reagent_lot_table)
 
-			#Saving the updated reagent quantity
-			user_reagent_choice_table.save()
+			if int(current_amount) != 0:
+				#Getting user reagent choice by querying hematology_inventory model
+				user_reagent_choice_table= department.objects.get(reagent_lot=reagent_lot_table)
 
-			#Getting value of reagent lot number to be used in historical model instance (**ALSO USING THIS FOR EMAIL**)
-			reagent_lot_for_historical_table= department.objects.values_list('reagent_lot', flat=True).get(reagent_lot=reagent_lot_table)
+				#Taking amount taken by user and decrementing the reagent quantity in database 
+				user_reagent_choice_table.reagent_quantity= F('reagent_quantity') - 1
 
-			#Getting the reagent name from table to be used in historical model instance (**ALSO USING THIS FOR EMAIL**)
-			reagent_name_for_historical_table= department.objects.values_list('reagent_name', flat=True).get(reagent_lot=reagent_lot_table)
+				#Saving the updated reagent quantity
+				user_reagent_choice_table.save()
 
-			#Creating a historical model instance
-			historical.objects.create(reagent_used= 1, reagent_name_history= reagent_name_for_historical_table, 
-				reagent_lot_history= reagent_lot_for_historical_table, username=user_first_last)
+				#Getting value of reagent lot number to be used in historical model instance (**ALSO USING THIS FOR EMAIL**)
+				reagent_lot_for_historical_table= department.objects.values_list('reagent_lot', flat=True).get(reagent_lot=reagent_lot_table)
 
-			user_reagent_choice_table= str(user_reagent_choice_table)
+				#Getting the reagent name from table to be used in historical model instance (**ALSO USING THIS FOR EMAIL**)
+				reagent_name_for_historical_table= department.objects.values_list('reagent_name', flat=True).get(reagent_lot=reagent_lot_table)
 
-			#Getting specialist preferences based on what specialist is logged in
-			alert_if_low= specialist_preferences.objects.values_list('alert_when_low', flat=True).get(specialist=specialist_name)
-			alert_if_empty= specialist_preferences.objects.values_list('alert_when_empty', flat=True).get(specialist=specialist_name)
-			specialist_warning_level= department.objects.values_list('warning_amount', flat=True).get(Q(reagent_name__iexact=user_reagent_choice_table) & Q(current_lot=True))
-			amount_remaining= department.objects.values_list('reagent_quantity', flat=True).get(Q(reagent_name__iexact=user_reagent_choice_table) & Q(current_lot=True))
+				#Creating a historical model instance
+				historical.objects.create(reagent_used= 1, reagent_name_history= reagent_name_for_historical_table, 
+					reagent_lot_history= reagent_lot_for_historical_table, username=user_first_last)
 
-			#Checking specialist preferences and then sending email
-			if alert_if_low == True and amount_remaining <= specialist_warning_level:
+				user_reagent_choice_table= str(user_reagent_choice_table)
 
-				#*******IMPORTANT******* IN PRODUCTION THIS IS WERE YOU WOULD PUT THE LOGED IN USERS EMAIL
-				send_mail("Low Reagent Warning",f"Warning {user_reagent_choice_table} Lot: {reagent_lot_for_historical_table} has {amount_remaining} remaining",
-					"bcavinee@gmail.com",[specialist_email], fail_silently=False)
+				#Getting specialist preferences based on what specialist is logged in
+				alert_if_low= specialist_preferences.objects.values_list('alert_when_low', flat=True).get(specialist=specialist_name)
+				alert_if_empty= specialist_preferences.objects.values_list('alert_when_empty', flat=True).get(specialist=specialist_name)
+				specialist_warning_level= department.objects.values_list('warning_amount', flat=True).get(Q(reagent_name__iexact=user_reagent_choice_table) & Q(current_lot=True))
+				amount_remaining= department.objects.values_list('reagent_quantity', flat=True).get(Q(reagent_name__iexact=user_reagent_choice_table) & Q(current_lot=True))
 
-			#Checking specialist preferences and then sending email
-			if alert_if_empty == True and amount_remaining == 0:
+				#Checking specialist preferences and then sending email
+				if alert_if_low == True and amount_remaining <= specialist_warning_level:
 
-				#*******IMPORTANT******* IN PRODUCTION THIS IS WERE YOU WOULD PUT THE LOGED IN USERS EMAIL
-				send_mail("Empty Reagent Warning",f"Warning {reagent_name_for_historical_table} Lot: {reagent_lot_for_historical_table} is depleted",
-					"bcavinee@gmail.com",[specialist_email], fail_silently=False)					
+					#*******IMPORTANT******* IN PRODUCTION THIS IS WERE YOU WOULD PUT THE LOGED IN USERS EMAIL
+					send_mail("Low Reagent Warning",f"Warning {user_reagent_choice_table} Lot: {reagent_lot_for_historical_table} has {amount_remaining} remaining",
+						"bcavinee@gmail.com",[specialist_email], fail_silently=False)
 
-			#Checking to see if request is an ajax call
-			if request.is_ajax():
-				
-				#Getting updated reagent amount value by using value_list to get the reagent quantity, then using a get call to target the specific reagent
-				table_updated_reagent_amount= department.objects.values_list('reagent_quantity', flat=True).get(reagent_lot=reagent_lot_table)
-				reagent_warning_level= department.objects.values_list('warning_amount', flat=True).get(reagent_lot=reagent_lot_table)
+				#Checking specialist preferences and then sending email
+				if alert_if_empty == True and amount_remaining == 0:
 
-				#Passing the reagent name the user selected and the updated reagent amount to the ajax call with a JsonResponse
-				return JsonResponse({'table_updated_reagent_amount' : table_updated_reagent_amount, 'reagent_warning_level' : reagent_warning_level}, status=200)
+					#*******IMPORTANT******* IN PRODUCTION THIS IS WERE YOU WOULD PUT THE LOGED IN USERS EMAIL
+					send_mail("Empty Reagent Warning",f"Warning {reagent_name_for_historical_table} Lot: {reagent_lot_for_historical_table} is depleted",
+						"bcavinee@gmail.com",[specialist_email], fail_silently=False)					
+
+				#Checking to see if request is an ajax call
+				if request.is_ajax():
+					
+					#Getting updated reagent amount value by using value_list to get the reagent quantity, then using a get call to target the specific reagent
+					table_updated_reagent_amount= department.objects.values_list('reagent_quantity', flat=True).get(reagent_lot=reagent_lot_table)
+					reagent_warning_level= department.objects.values_list('warning_amount', flat=True).get(reagent_lot=reagent_lot_table)
+
+					#Passing the reagent name the user selected and the updated reagent amount to the ajax call with a JsonResponse
+					return JsonResponse({'table_updated_reagent_amount' : table_updated_reagent_amount, 'reagent_warning_level' : reagent_warning_level}, status=200)
 
 
 
